@@ -6,6 +6,8 @@ use crate::state::State;
 mod command;
 mod state;
 mod utils;
+mod api;
+mod fen2md;
 
 #[tokio::main]
 async fn main() {

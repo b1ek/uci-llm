@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::state::options::Options;
 
-mod options;
+pub mod options;
 
 pub type CancelToken = Arc<Mutex<Option<CancellationToken>>>;
 pub type GoStoppedNotification = Arc<Mutex<Notify>>;

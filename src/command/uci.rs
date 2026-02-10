@@ -1,6 +1,7 @@
 use crate::command::{CommandResult, ICommand};
 use crate::outputln;
 use crate::state::State;
+use crate::state::options::Options;
 
 pub struct UciCommand;
 
@@ -9,7 +10,8 @@ impl ICommand for UciCommand {
         outputln!("id name Rust UCI Base");
         outputln!("id author b1ek");
         outputln!();
-        outputln!("option name Threads type spin min 1 max 1024");
+        outputln!("{}", Options::format_uci_options().join("\n"));
+        outputln!();
         outputln!("uciok");
         Ok(())
     }

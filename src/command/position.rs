@@ -1,8 +1,9 @@
 use std::str::FromStr;
 
-use chess::{Board, ChessMove};
+use chess::{Board, ChessMove, MoveGen};
 
 use crate::command::{CommandResult, ICommand};
+use crate::outputln;
 use crate::state::State;
 use crate::utils::consume_args;
 
@@ -71,6 +72,22 @@ impl ICommand for PositionCommand {
                     }
                 }
             }
+        }
+
+        #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Prompt {
+            fen: String,
+            legal_moves: Vec<String>
+        }
+
+        let p = Prompt {
+            fen: state.board.to_string(),
+            legal_moves: MoveGen::new_legal(&state.board).map(|x| x.to_string()).collect::<Vec<String>>()
+        };
+
+        if state.options.debug {
+            outputln!("info string debug prompt {}", serde_json::to_string(&p).unwrap());
         }
 
         Ok(())
