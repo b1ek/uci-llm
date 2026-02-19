@@ -2,26 +2,27 @@ pub trait UciOption {
     fn uci_type() -> &'static str;
 }
 
+impl UciOption for u8 { fn uci_type() -> &'static str { "spin" } }
 impl UciOption for u16 { fn uci_type() -> &'static str { "spin" } }
 impl UciOption for bool { fn uci_type() -> &'static str { "check" } }
 impl UciOption for String { fn uci_type() -> &'static str { "string" } }
 
 macro_rules! options {
-    (@format_option $name:literal, $type:ty, $default:expr, $min:expr, $max:expr) => {
-        format!("option name {} type {} default {} min {} max {}", 
-            $name, 
-            <$type as UciOption>::uci_type(), 
-            $default,
+    (@format_option $name:literal, $type:ty, $value:expr, $min:expr, $max:expr) => {
+        format!("option name {} type {} default {} min {} max {}",
+            $name,
+            <$type as UciOption>::uci_type(),
+            $value,
             $min,
             $max
         )
     };
 
-    (@format_option $name:literal, $type:ty, $default:expr,) => {
-        format!("option name {} type {} default {}", 
-            $name, 
-            <$type as UciOption>::uci_type(), 
-            $default
+    (@format_option $name:literal, $type:ty, $value:expr,) => {
+        format!("option name {} type {} default {}",
+            $name,
+            <$type as UciOption>::uci_type(),
+            $value
         )
     };
 
@@ -34,9 +35,9 @@ macro_rules! options {
         }
 
         impl Options {
-            pub fn format_uci_options() -> Vec<String> {
+            pub fn format_uci_options(&self) -> Vec<String> {
                 vec![$(
-                    options!(@format_option $uci_name, $type, $default, $($min, $max)?),
+                    options!(@format_option $uci_name, $type, self.$field, $($min, $max)?),
                 )*]
             }
 
@@ -69,5 +70,6 @@ options! {
     apimodel: String = String::from("openai/gpt-oss-20b") => "APIModel",
     apibaseurl: String = String::from("<unset>") => "APIBaseURL",
     apikey: String = String::from("<unset>") => "APIKey",
+    apimaxtries: u8 = 3 => "APIMaxTries",
     fenasmd: bool = false => "FenAsMarkdown",
 }

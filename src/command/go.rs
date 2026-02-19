@@ -2,7 +2,7 @@ use async_openai::config::OpenAIConfig;
 use std::str::FromStr;
 
 use async_openai::Client;
-use async_openai::types::responses::{CreateResponseArgs, InputContent, InputItem, InputMessage, InputParam, InputTextContent, ResponseTextParam};
+use async_openai::types::responses::{CreateResponseArgs, InputContent, InputItem, InputMessage, InputParam, InputTextContent, Response, ResponseTextParam};
 use chess::{Board, ChessMove, MoveGen};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -70,71 +70,15 @@ fn best(mov: ChessMove) {
     outputln!("bestmove {mov}");
 }
 
-async fn go(
-    args: Vec<String>,
-    board: Board,
-    threads: u16,
-    _cancellation: CancellationToken,
-    stopped_notification: GoStoppedNotification,
-    options: Options,
-) {
-    let _ = threads;
-    let bestmove: Option<ChessMove>;
-
-    if options.debug {
-        outputln!("info string go command worker entered with these options: {options:?}");
-    }
-
-    #[allow(unused)]
-    let (
-        searchmoves,
-        ponder,
-        wtime,
-        btime,
-        winc,
-        binc,
-        movestogo,
-        depth,
-        nodes,
-        mate,
-        movetime,
-        infinite,
-    ) = (
-        process_keyword(&args, "searchmoves".into()),
-        process_keyword(&args, "ponder".into()),
-        process_keyword(&args, "wtime".into()),
-        process_keyword(&args, "btime".into()),
-        process_keyword(&args, "winc".into()),
-        process_keyword(&args, "binc".into()),
-        process_keyword(&args, "movestogo".into()),
-        process_keyword(&args, "depth".into()),
-        process_keyword(&args, "nodes".into()),
-        process_keyword(&args, "mate".into()),
-        process_keyword(&args, "movetime".into()),
-        process_keyword(&args, "infinite".into()),
-    );
-
-    let legal_moves = legal_moves(board);
-    if legal_moves.len() == 0 {
-        outputln!(
-            "info string error: refusing to evaluate on a board with no legal moves, considering the position draw by stalemate"
-        );
-        outputln!("info depth 1 score cp 0");
-        return;
-    }
-
-    if legal_moves.len() == 1 {
-        // not going to evaluate a forced position
-        return best(legal_moves.get(0).unwrap().clone());
-    }
-
+async fn try_get_bestmove(options: Options, board: Board, legal_moves: Vec<ChessMove>) -> Option<(ChessMove, String, String, u32, Response)> {
     let submit_eval_schema = json!({
         "type": "object",
         "properties": {
             "ponder": {
                 "type": "array",
                 "items": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": legal_moves.iter().map(|x| x.to_string()).collect::<Vec<String>>()
                 },
                 "minItems": 1,
                 "description": "This is the list of moves you think is the best line. For example, if you think that the best line from a starting position is 1. d4 d5, this field should be [\"d2d4\",\"d7d5\"], provided \"d2d4\" is one of the legal moves."
@@ -159,7 +103,7 @@ async fn go(
         let fen = fen2md(board.to_string());
         if let Err(fen) = fen {
             outputln!("info string error: could not parse fen: {fen:?}");
-            return;
+            return None;
         }
         fen.unwrap()
     } else {
@@ -226,9 +170,15 @@ async fn go(
             .with_api_key(options.apikey),
     );
     let res = client.responses().create(req).await.unwrap();
+
+    if options.debug {
+        outputln!("info string debug received response: {}", serde_json::to_string(&res).unwrap());
+    }
+
     let eval = serde_json::from_str(&res.output_text().unwrap());
     if let Err(err) = &eval {
         outputln!("info string error: could not parse ai's response: {err}, {}", &res.output_text().unwrap());
+        return None;
     }
     let eval: SubmitEval = eval.unwrap();
     
@@ -244,31 +194,97 @@ async fn go(
 
     if eval.ponder.len() == 0 {
         outputln!("info string error: ai returned no ponder");
-        return;
+        return None;
     }
 
     let bm = (&eval.ponder).get(0).unwrap();
     if legal_moves.iter().find(|x| x.to_string() == *bm).is_none() {
         outputln!("info string error: ai returned an illegal move");
-        return;
+        return None;
     }
+        
     let bm = ChessMove::from_str(bm).unwrap();
-    bestmove = Some(bm);
     let pv = eval.ponder.join(" ");
 
-    outputln!("info depth {depth} score {score} pv {pv}");
-    
+    Some((bm, pv, score, depth, res))
+}
+
+async fn go(
+    args: Vec<String>,
+    board: Board,
+    threads: u16,
+    _cancellation: CancellationToken,
+    stopped_notification: GoStoppedNotification,
+    options: Options,
+) {
+    let _ = threads;
+    let mut bestmove: Option<ChessMove>;
+
     if options.debug {
-        outputln!("info string debug ai response {}", serde_json::to_string(&res).unwrap());
+        outputln!("info string go command worker entered with these options: {options:?}");
     }
 
-    stopped_notification.lock().await.notify_waiters();
+    #[allow(unused)]
+    let (
+        searchmoves,
+        ponder,
+        wtime,
+        btime,
+        winc,
+        binc,
+        movestogo,
+        depth,
+        nodes,
+        mate,
+        movetime,
+        infinite,
+    ) = (
+        process_keyword(&args, "searchmoves".into()),
+        process_keyword(&args, "ponder".into()),
+        process_keyword(&args, "wtime".into()),
+        process_keyword(&args, "btime".into()),
+        process_keyword(&args, "winc".into()),
+        process_keyword(&args, "binc".into()),
+        process_keyword(&args, "movestogo".into()),
+        process_keyword(&args, "depth".into()),
+        process_keyword(&args, "nodes".into()),
+        process_keyword(&args, "mate".into()),
+        process_keyword(&args, "movetime".into()),
+        process_keyword(&args, "infinite".into()),
+    );
 
-    if let Some(bestmove) = bestmove {
-        outputln!("bestmove {}", bestmove);
-    } else {
-        outputln!("info error: no move found");
+    let legal_moves = legal_moves(board);
+    if legal_moves.len() == 0 {
+        outputln!(
+            "info string error: refusing to evaluate on a board with no legal moves, considering the position draw by stalemate"
+        );
+        outputln!("info depth 1 score cp 0");
+        return;
     }
+
+    if legal_moves.len() == 1 {
+        // not going to evaluate a forced position
+        return best(legal_moves.get(0).unwrap().clone());
+    }
+
+    for i in 0..=options.apimaxtries {
+        if let Some((bm, pv, score, depth, res)) = try_get_bestmove(options.clone(), board, legal_moves.clone()).await {
+            outputln!("info depth {depth} score {score} pv {pv}");
+            
+            if options.debug {
+                outputln!("info string debug ai response {}", serde_json::to_string(&res).unwrap());
+            }
+
+            stopped_notification.lock().await.notify_waiters();
+
+                outputln!("bestmove {bm}");
+                return;
+        } else {
+            outputln!("info error: no move found, going to try again ({}/{})", i+1, options.apimaxtries);
+        }
+    }
+
+    outputln!("info error: no bestmove was found in 3 tries, going to pick a random move");
 }
 
 impl ICommand for GoCommand {
