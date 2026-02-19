@@ -1,4 +1,6 @@
 use async_openai::config::OpenAIConfig;
+use rand::rng;
+use rand::seq::SliceRandom;
 use std::str::FromStr;
 
 use async_openai::Client;
@@ -284,7 +286,11 @@ async fn go(
         }
     }
 
+    let mut legal_moves = legal_moves;
+    legal_moves.shuffle(&mut rng());
+
     outputln!("info error: no bestmove was found in 3 tries, going to pick a random move");
+    outputln!("bestmove {}", legal_moves.first().unwrap());
 }
 
 impl ICommand for GoCommand {
