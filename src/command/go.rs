@@ -220,7 +220,6 @@ async fn go(
     options: Options,
 ) {
     let _ = threads;
-    let mut bestmove: Option<ChessMove>;
 
     if options.debug {
         outputln!("info string go command worker entered with these options: {options:?}");
