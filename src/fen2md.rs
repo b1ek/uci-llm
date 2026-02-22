@@ -57,6 +57,40 @@ impl ChessPieces {
             Self::WhitePawn => "White pawn",
         }.to_string()
     }
+
+    pub fn is_white(&self) -> bool {
+        match self {
+            Self::WhiteRook => true,
+            Self::WhiteKnight => true,
+            Self::WhiteBishop => true,
+            Self::WhiteQueen => true,
+            Self::WhiteKing => true,
+            Self::WhitePawn => true,
+            _ => false,
+        }
+    }
+
+    pub fn value(&self) -> u8 {
+        match self {
+            Self::WhiteRook => 5,
+            Self::BlackRook => 5,
+
+            Self::WhiteKnight => 3,
+            Self::BlackKnight => 3,
+
+            Self::WhiteBishop => 3,
+            Self::BlackBishop => 3,
+
+            Self::WhiteQueen => 9,
+            Self::BlackQueen => 9,
+
+            Self::WhiteKing => 0,
+            Self::BlackKing => 0,
+
+            Self::WhitePawn => 1,
+            Self::BlackPawn => 1,
+        }
+    }
 }
 
 pub fn fen2md(fen: String) -> Result<String, String> {
@@ -97,6 +131,9 @@ pub fn fen2md(fen: String) -> Result<String, String> {
     let mut invalid_pieces = vec![];
     let mut rank = 9_u8;
 
+    let mut white_material = 0;
+    let mut black_material = 0;
+
     for component in components {
         rank -= 1;
         let mut file = 0_u8;
@@ -113,7 +150,14 @@ pub fn fen2md(fen: String) -> Result<String, String> {
             
             let char_file = (('a' as u8) + (file - 1)) as char;
             match ChessPieces::try_from(chr) {
-                Ok(v) => writeln!(markdown, "{} on {char_file}{rank}", v.as_human()).unwrap(),
+                Ok(v) => {
+                    if v.is_white() {
+                        white_material += v.value();
+                    } else {
+                        black_material += v.value();
+                    }
+                    writeln!(markdown, "{} on {char_file}{rank}", v.as_human()).unwrap()
+                },
                 Err(_) => {
                     invalid_pieces.push(format!("{chr}{char_file}{rank}"));
                     continue;
@@ -121,6 +165,20 @@ pub fn fen2md(fen: String) -> Result<String, String> {
             }
         }
     }
+
+    writeln!(markdown, "\n## Material\n").unwrap();
+    write!(markdown, "White's material count: {white_material}\n").unwrap();
+    write!(markdown, "Black's material count: {black_material}\n").unwrap();
+    if white_material == black_material {
+        write!(markdown, "The players are equal on material.\n").unwrap();
+    } else {
+        if white_material > black_material {
+            write!(markdown, "White has a +{} material advantage", white_material - black_material).unwrap();
+        } else {
+            write!(markdown, "Black has a -{} material advantage", black_material - white_material).unwrap();
+        }
+    }
+    write!(markdown, "Important: the material is counted using only the number of pieces available, disregarding relative value (for example, if a queen is on the board but is pinned to the king by a defended attacker, its relative value is less than 9). The kings are also not included in this calculation.").unwrap();
 
     write!(markdown, "\n### Other\n").unwrap();
 

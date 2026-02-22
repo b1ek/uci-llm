@@ -6,7 +6,7 @@ use std::str::FromStr;
 use async_openai::Client;
 use async_openai::types::responses::{
     CreateResponseArgs, InputContent, InputItem, InputMessage, InputParam, InputTextContent,
-    Response, ResponseTextParam,
+    ResponseTextParam,
 };
 use chess::{Board, ChessMove, MoveGen};
 use serde::{Deserialize, Serialize};
