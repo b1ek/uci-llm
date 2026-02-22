@@ -4,7 +4,10 @@ use rand::seq::SliceRandom;
 use std::str::FromStr;
 
 use async_openai::Client;
-use async_openai::types::responses::{CreateResponseArgs, InputContent, InputItem, InputMessage, InputParam, InputTextContent, Response, ResponseTextParam};
+use async_openai::types::responses::{
+    CreateResponseArgs, InputContent, InputItem, InputMessage, InputParam, InputTextContent,
+    Response, ResponseTextParam,
+};
 use chess::{Board, ChessMove, MoveGen};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -12,9 +15,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::command::{CommandResult, ICommand};
 use crate::fen2md::fen2md;
+use crate::outputln;
 use crate::state::options::Options;
 use crate::state::{GoStoppedNotification, State};
-use crate::outputln;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubmitEval {
@@ -22,7 +25,7 @@ pub struct SubmitEval {
     eval: f32,
     mate: Option<f32>,
     depth: Option<f32>,
-    reasoning: Option<String>
+    reasoning: Option<String>,
 }
 
 pub struct GoCommand;
@@ -73,7 +76,11 @@ fn best(mov: ChessMove) {
     outputln!("bestmove {mov}");
 }
 
-async fn try_get_bestmove(options: Options, board: Board, legal_moves: Vec<ChessMove>) -> Option<(ChessMove, String, String, u32)> {
+async fn try_get_bestmove(
+    options: Options,
+    board: Board,
+    legal_moves: Vec<ChessMove>,
+) -> Option<(ChessMove, String, String, u32)> {
     let mut submit_eval_schema = json!({
         "type": "object",
         "properties": {
@@ -102,13 +109,24 @@ async fn try_get_bestmove(options: Options, board: Board, legal_moves: Vec<Chess
         "required": ["ponder", "eval"]
     });
     if options.output_reasoning {
-        let props = submit_eval_schema.get_mut("properties").unwrap().as_object_mut().unwrap();
+        let props = submit_eval_schema
+            .get_mut("properties")
+            .unwrap()
+            .as_object_mut()
+            .unwrap();
         props.insert("reasoning".to_string(), json!({
             "type": "string",
             "description": "Explain why you think this is the best move and why the evaluation is what it is"
         }));
 
-        submit_eval_schema.as_object_mut().unwrap().get_mut("required").unwrap().as_array_mut().unwrap().push("reasoning".into());
+        submit_eval_schema
+            .as_object_mut()
+            .unwrap()
+            .get_mut("required")
+            .unwrap()
+            .as_array_mut()
+            .unwrap()
+            .push("reasoning".into());
     }
 
     let fen = if options.fenasmd {
@@ -126,7 +144,7 @@ async fn try_get_bestmove(options: Options, board: Board, legal_moves: Vec<Chess
         outputln!("info string going to send off a request now");
     }
 
-    let input_data = vec![
+    let mut input_data = vec![
         InputItem::Item(async_openai::types::responses::Item::Message(
             async_openai::types::responses::MessageItem::Input(InputMessage {
                 content: vec![InputContent::InputText(InputTextContent {
@@ -160,20 +178,42 @@ async fn try_get_bestmove(options: Options, board: Board, legal_moves: Vec<Chess
         )),
     ];
 
+    if !options.additional_instructions.is_empty() {
+        input_data.push(InputItem::Item(
+            async_openai::types::responses::Item::Message(
+                async_openai::types::responses::MessageItem::Input(InputMessage {
+                    content: vec![InputContent::InputText(InputTextContent {
+                        text: options.additional_instructions,
+                    })],
+                    role: async_openai::types::responses::InputRole::System,
+                    status: None,
+                }),
+            ),
+        ));
+    }
+
     let req = CreateResponseArgs::default()
         .model(options.apimodel)
         .input(InputParam::Items(input_data.clone()))
         .text(ResponseTextParam {
             format: async_openai::types::responses::TextResponseFormatConfiguration::JsonSchema(
-                async_openai::types::responses::ResponseFormatJsonSchema { description: Some("Evaluation output schema".into()), name: "Evaluation output".into(), schema: Some(submit_eval_schema), strict: Some(true) }
+                async_openai::types::responses::ResponseFormatJsonSchema {
+                    description: Some("Evaluation output schema".into()),
+                    name: "Evaluation output".into(),
+                    schema: Some(submit_eval_schema),
+                    strict: Some(true),
+                },
             ),
-            verbosity: Some(async_openai::types::responses::Verbosity::Low)
+            verbosity: Some(async_openai::types::responses::Verbosity::Low),
         })
         .build()
         .unwrap();
 
     if options.debug {
-        outputln!("info string debug going to send this: {}", serde_json::to_string(&req).unwrap());
+        outputln!(
+            "info string debug going to send this: {}",
+            serde_json::to_string(&req).unwrap()
+        );
     }
 
     let client = Client::with_config(
@@ -190,16 +230,22 @@ async fn try_get_bestmove(options: Options, board: Board, legal_moves: Vec<Chess
     let res = res.unwrap();
 
     if options.debug {
-        outputln!("info string debug received response: {}", serde_json::to_string(&res).unwrap());
+        outputln!(
+            "info string debug received response: {}",
+            serde_json::to_string(&res).unwrap()
+        );
     }
 
     let eval = serde_json::from_str(&res.output_text().unwrap());
     if let Err(err) = &eval {
-        outputln!("info string error: could not parse ai's response: {err}, {}", &res.output_text().unwrap());
+        outputln!(
+            "info string error: could not parse ai's response: {err}, {}",
+            &res.output_text().unwrap()
+        );
         return None;
     }
     let eval: SubmitEval = eval.unwrap();
-    
+
     let depth = eval.depth.unwrap_or(1.0) as u32;
     let score = {
         if let Some(mate) = eval.mate {
@@ -226,7 +272,7 @@ async fn try_get_bestmove(options: Options, board: Board, legal_moves: Vec<Chess
         outputln!("info string error: ai returned an illegal move");
         return None;
     }
-        
+
     let bm = ChessMove::from_str(bm).unwrap();
     let pv = eval.ponder.join(" ");
 
@@ -291,15 +337,21 @@ async fn go(
     }
 
     for i in 0..=options.apimaxtries {
-        if let Some((bm, pv, score, depth)) = try_get_bestmove(options.clone(), board, legal_moves.clone()).await {
+        if let Some((bm, pv, score, depth)) =
+            try_get_bestmove(options.clone(), board, legal_moves.clone()).await
+        {
             outputln!("info depth {depth} score {score} pv {pv}");
 
             stopped_notification.lock().await.notify_waiters();
 
-                outputln!("bestmove {bm}");
-                return;
+            outputln!("bestmove {bm}");
+            return;
         } else {
-            outputln!("info error: no move found, going to try again ({}/{})", i+1, options.apimaxtries);
+            outputln!(
+                "info error: no move found, going to try again ({}/{})",
+                i + 1,
+                options.apimaxtries
+            );
         }
     }
 

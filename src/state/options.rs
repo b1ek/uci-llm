@@ -73,4 +73,6 @@ options! {
     apikey: String = String::from("<unset>") => "APIKey",
     apimaxtries: u8 = 3 => "APIMaxTries",
     fenasmd: bool = false => "FenAsMarkdown",
+    additional_instructions: String = String::new() => "AdditionalInstructions",
+    additional_instructions_file: String = String::new() => "AdditionalInstructionsFile",
 }
