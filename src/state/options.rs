@@ -67,6 +67,7 @@ macro_rules! options {
 options! {
     threads: u16 = 1 => "Threads" [1, 256],
     debug: bool = false => "Debug",
+    output_reasoning: bool = false => "OutputReasoning",
     apimodel: String = String::from("openai/gpt-oss-20b") => "APIModel",
     apibaseurl: String = String::from("<unset>") => "APIBaseURL",
     apikey: String = String::from("<unset>") => "APIKey",

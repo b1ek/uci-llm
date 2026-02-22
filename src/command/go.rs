@@ -22,6 +22,7 @@ pub struct SubmitEval {
     eval: f32,
     mate: Option<f32>,
     depth: Option<f32>,
+    reasoning: Option<String>
 }
 
 pub struct GoCommand;
@@ -72,8 +73,8 @@ fn best(mov: ChessMove) {
     outputln!("bestmove {mov}");
 }
 
-async fn try_get_bestmove(options: Options, board: Board, legal_moves: Vec<ChessMove>) -> Option<(ChessMove, String, String, u32, Response)> {
-    let submit_eval_schema = json!({
+async fn try_get_bestmove(options: Options, board: Board, legal_moves: Vec<ChessMove>) -> Option<(ChessMove, String, String, u32)> {
+    let mut submit_eval_schema = json!({
         "type": "object",
         "properties": {
             "ponder": {
@@ -100,6 +101,15 @@ async fn try_get_bestmove(options: Options, board: Board, legal_moves: Vec<Chess
         },
         "required": ["ponder", "eval"]
     });
+    if options.output_reasoning {
+        let props = submit_eval_schema.get_mut("properties").unwrap().as_object_mut().unwrap();
+        props.insert("reasoning".to_string(), json!({
+            "type": "string",
+            "description": "Explain why you think this is the best move and why the evaluation is what it is"
+        }));
+
+        submit_eval_schema.as_object_mut().unwrap().get_mut("required").unwrap().as_array_mut().unwrap().push("reasoning".into());
+    }
 
     let fen = if options.fenasmd {
         let fen = fen2md(board.to_string());
@@ -171,7 +181,13 @@ async fn try_get_bestmove(options: Options, board: Board, legal_moves: Vec<Chess
             .with_api_base(options.apibaseurl)
             .with_api_key(options.apikey),
     );
-    let res = client.responses().create(req).await.unwrap();
+    let res = client.responses().create(req).await;
+    if let Err(res) = res {
+        outputln!("info string error network error while fetching response: {res}");
+        return None;
+    }
+
+    let res = res.unwrap();
 
     if options.debug {
         outputln!("info string debug received response: {}", serde_json::to_string(&res).unwrap());
@@ -194,6 +210,12 @@ async fn try_get_bestmove(options: Options, board: Board, legal_moves: Vec<Chess
         }
     };
 
+    if let Some(exp) = eval.reasoning {
+        if exp.len() != 0 {
+            outputln!("info string reasoning: {exp}");
+        }
+    }
+
     if eval.ponder.len() == 0 {
         outputln!("info string error: ai returned no ponder");
         return None;
@@ -208,7 +230,7 @@ async fn try_get_bestmove(options: Options, board: Board, legal_moves: Vec<Chess
     let bm = ChessMove::from_str(bm).unwrap();
     let pv = eval.ponder.join(" ");
 
-    Some((bm, pv, score, depth, res))
+    Some((bm, pv, score, depth))
 }
 
 async fn go(
@@ -269,12 +291,8 @@ async fn go(
     }
 
     for i in 0..=options.apimaxtries {
-        if let Some((bm, pv, score, depth, res)) = try_get_bestmove(options.clone(), board, legal_moves.clone()).await {
+        if let Some((bm, pv, score, depth)) = try_get_bestmove(options.clone(), board, legal_moves.clone()).await {
             outputln!("info depth {depth} score {score} pv {pv}");
-            
-            if options.debug {
-                outputln!("info string debug ai response {}", serde_json::to_string(&res).unwrap());
-            }
 
             stopped_notification.lock().await.notify_waiters();
 
